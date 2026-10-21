@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  FORCE_COLOR: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código del repositorio
+        uses: actions/checkout@v5
+
+      - name: Instalar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Instalar dependencias
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Revisar el código
+        run: ruff check .
+
+  tests:
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - name: Descargar el código del repositorio
+        uses: actions/checkout@v5
+
+      - name: Instalar Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Instalar dependencias
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Ejecutar tests
+        run: pytest
+
+      - name: Avisar del fallo
+        if: failure()
+        run: echo "Los tests han fallado en Python ${{ matrix.python-version }}"
+
+  desplegar-staging:
+    needs: [lint, tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ vars.APP_URL }}
+    steps:
+      - name: Descargar el código del repositorio
+        uses: actions/checkout@v5
+
+      - name: Instalar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Desplegar en staging
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+        run: python desplegar.py
+
+  desplegar-produccion:
+    needs: desplegar-staging
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    steps:
+      - name: Descargar el código del repositorio
+        uses: actions/checkout@v5
+
+      - name: Instalar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Desplegar en producción
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+        run: python desplegar.py
